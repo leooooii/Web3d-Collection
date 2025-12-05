@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Toy Train Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body { margin: 0; overflow: hidden; background-color: #87CEEB; user-select: none; }
+      #canvas-container { width: 100vw; height: 100vh; }
+      
+      /* Slider styling */
+      input[type=range] {
+        -webkit-appearance: none;
+        background: transparent;
+      }
+      input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 20px;
+        width: 20px;
+        border-radius: 50%;
+        background: #2563eb;
+        cursor: pointer;
+        margin-top: -8px;
+        box-shadow: 0 0 5px rgba(0,0,0,0.2);
+      }
+      input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 4px;
+        cursor: pointer;
+        background: #cbd5e1;
+        border-radius: 2px;
+      }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <!-- UI Overlay -->
+    <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 w-full max-w-md px-4 z-10">
+      <div class="bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl p-6 border border-white/50">
+        <div class="flex items-center justify-between mb-6">
+          <h1 class="text-2xl font-bold text-gray-800 tracking-tight">Train Controls</h1>
+          <div id="status-badge" class="px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-red-100 text-red-700 transition-colors duration-300">
+            Stopped
+          </div>
+        </div>
+
+        <div class="space-y-6">
+          <button id="toggle-btn" class="w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] bg-blue-600 hover:bg-blue-700 shadow-blue-600/30">
+            START ENGINE
+          </button>
+
+          <div class="space-y-2">
+            <div class="flex justify-between text-sm font-medium text-gray-600">
+              <span>Slow</span>
+              <span>Fast</span>
+            </div>
+            <input id="speed-slider" type="range" min="0.1" max="1.5" step="0.1" value="0.5" class="w-full transition-opacity opacity-50 cursor-not-allowed" disabled>
+            <div class="text-center text-xs text-gray-400 font-mono mt-1">
+              SPEED: <span id="speed-display">0</span> RPM
+            </div>
+          </div>
+        </div>
+        
+        <div class="mt-4 pt-4 border-t border-gray-200 text-center">
+            <p class="text-xs text-gray-500">Drag to rotate • Scroll to zoom</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+      // --- Configuration ---
+      const CONFIG = {
+        trackRadius: 60,
+        wheelRadius: 1.2,
+        trainColor: 0x3b82f6,
+        accentColor: 0xef4444,
+        darkColor: 0x1f2937,
+        goldColor: 0xffd700
+      };
+
+      let scene, camera, renderer, controls;
+      let trainPivot, wheelGroups = [];
+      let isPlaying = false;
+      let speed = 0.5;
+      let animationId;
+      let lastTime = 0;
+
+      // --- UI Elements ---
+      const toggleBtn = document.getElementById('toggle-btn');
+      const speedSlider = document.getElementById('speed-slider');
+      const statusBadge = document.getElementById('status-badge');
+      const speedDisplay = document.getElementById('speed-display');
+
+      function init() {
+        // Scene Setup
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue
+        scene.fog = new THREE.Fog(0x87CEEB, 80, 300);
+
+        // Camera
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1000);
+        camera.position.set(0, 60, 130);
+
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Controls
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.enablePan = false;
+        controls.minDistance = 40;
+        controls.maxDistance = 250;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05;
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        sunLight.position.set(50, 100, 50);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 500;
+        sunLight.shadow.camera.left = -100;
+        sunLight.shadow.camera.right = 100;
+        sunLight.shadow.camera.top = 100;
+        sunLight.shadow.camera.bottom = -100;
+        scene.add(sunLight);
+
+        // Ground
+        const groundGeo = new THREE.CircleGeometry(300, 64);
+        const groundMat = new THREE.MeshStandardMaterial({ 
+            color: 0x5dae65, 
+            roughness: 1,
+            side: THREE.DoubleSide
+        });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Build Scene Objects
+        createTrack();
+        createTrain();
+
+        // Event Listeners
+        window.addEventListener('resize', onWindowResize);
+        toggleBtn.addEventListener('click', togglePlay);
+        speedSlider.addEventListener('input', updateSpeed);
+
+        // Initial Render
+        render();
+      }
+
+      function createTrack() {
+        const trackGroup = new THREE.Group();
+        
+        // Rails (Torus)
+        const railMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.2 });
+        
+        const outerRail = new THREE.Mesh(new THREE.TorusGeometry(CONFIG.trackRadius + 2.5, 0.5, 16, 100), railMat);
+        outerRail.rotation.x = -Math.PI / 2;
+        outerRail.castShadow = true;
+        outerRail.receiveShadow = true;
+        trackGroup.add(outerRail);
+
+        const innerRail = new THREE.Mesh(new THREE.TorusGeometry(CONFIG.trackRadius - 2.5, 0.5, 16, 100), railMat);
+        innerRail.rotation.x = -Math.PI / 2;
+        innerRail.castShadow = true;
+        innerRail.receiveShadow = true;
+        trackGroup.add(innerRail);
+
+        // Sleepers
+        const sleeperCount = 60;
+        const sleeperGeo = new THREE.BoxGeometry(8, 0.4, 1.5); // Width, Height (thickness), Depth (width along track)
+        const sleeperMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 });
+
+        for (let i = 0; i < sleeperCount; i++) {
+            const angle = (i / sleeperCount) * Math.PI * 2;
+            const sleeper = new THREE.Mesh(sleeperGeo, sleeperMat);
+            
+            sleeper.position.set(
+                Math.cos(angle) * CONFIG.trackRadius,
+                0.2, // Slightly above ground
+                Math.sin(angle) * CONFIG.trackRadius
+            );
+            sleeper.rotation.y = -angle; // Rotate to face center
+            sleeper.receiveShadow = true;
+            sleeper.castShadow = true;
+            trackGroup.add(sleeper);
+        }
+
+        // Ballast (Gravel)
+        const ballastGeo = new THREE.RingGeometry(CONFIG.trackRadius - 6, CONFIG.trackRadius + 6, 64);
+        const ballastMat = new THREE.MeshStandardMaterial({ color: 0x7a7a7a, roughness: 1, side: THREE.DoubleSide });
+        const ballast = new THREE.Mesh(ballastGeo, ballastMat);
+        ballast.rotation.x = -Math.PI / 2;
+        ballast.position.y = 0.05;
+        trackGroup.add(ballast);
+
+        scene.add(trackGroup);
+      }
+
+      function createTrain() {
+        // Pivot Group: This rotates at the center of the scene
+        trainPivot = new THREE.Group();
+        scene.add(trainPivot);
+
+        // Train Group: Offset by radius, so it sits on the track
+        const trainGroup = new THREE.Group();
+        // Adjust Y height so wheels sit on rails (Radius 0.5). Wheel Radius 1.2.
+        // Wheel center is at -1.5 relative to body.
+        // If Y=3.2. Wheel Center = 1.7. Wheel Bottom = 0.5. Perfect.
+        trainGroup.position.set(CONFIG.trackRadius, 3.2, 0); 
+        trainPivot.add(trainGroup);
+
+        // --- Train Body Construction ---
+        
+        // Chassis
+        const chassis = new THREE.Mesh(
+            new THREE.BoxGeometry(4.5, 1, 11),
+            new THREE.MeshStandardMaterial({ color: CONFIG.darkColor })
+        );
+        chassis.position.y = 0;
+        chassis.castShadow = true;
+        trainGroup.add(chassis);
+
+        // Cabin
+        const cabin = new THREE.Mesh(
+            new THREE.BoxGeometry(4.2, 5, 4),
+            new THREE.MeshStandardMaterial({ color: CONFIG.trainColor })
+        );
+        cabin.position.set(0, 3, 3); // Back of the train (+Z)
+        cabin.castShadow = true;
+        trainGroup.add(cabin);
+
+        // Cabin Roof
+        const roof = new THREE.Mesh(
+            new THREE.BoxGeometry(4.6, 0.5, 4.4),
+            new THREE.MeshStandardMaterial({ color: CONFIG.darkColor })
+        );
+        roof.position.set(0, 5.75, 3);
+        roof.castShadow = true;
+        trainGroup.add(roof);
+
+        // Boiler
+        const boiler = new THREE.Mesh(
+            new THREE.CylinderGeometry(1.8, 1.8, 6, 32),
+            new THREE.MeshStandardMaterial({ color: CONFIG.trainColor })
+        );
+        boiler.rotation.x = Math.PI / 2;
+        boiler.position.set(0, 2.5, -2);
+        boiler.castShadow = true;
+        trainGroup.add(boiler);
+
+        // Chimney
+        const chimneyBase = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.6, 0.6, 2, 16),
+            new THREE.MeshStandardMaterial({ color: CONFIG.darkColor })
+        );
+        chimneyBase.position.set(0, 4.5, -3.5);
+        chimneyBase.castShadow = true;
+        trainGroup.add(chimneyBase);
+        
+        const chimneyTop = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.8, 0.8, 0.5, 16),
+            new THREE.MeshStandardMaterial({ color: CONFIG.goldColor })
+        );
+        chimneyTop.position.set(0, 5.6, -3.5);
+        chimneyTop.castShadow = true;
+        trainGroup.add(chimneyTop);
+
+        // Front Face
+        const face = new THREE.Mesh(
+            new THREE.CylinderGeometry(1.8, 1.8, 0.2, 32),
+            new THREE.MeshStandardMaterial({ color: 0xcccccc })
+        );
+        face.rotation.x = Math.PI / 2;
+        face.position.set(0, 2.5, -5.1); // -Z is FRONT
+        face.castShadow = true;
+        trainGroup.add(face);
+
+        // Bumpers (Red)
+        const bumperGeo = new THREE.BoxGeometry(4.6, 1, 0.5);
+        const bumperMat = new THREE.MeshStandardMaterial({ color: CONFIG.accentColor });
+        const frontBumper = new THREE.Mesh(bumperGeo, bumperMat);
+        frontBumper.position.set(0, 0, -5.5);
+        trainGroup.add(frontBumper);
+        const backBumper = new THREE.Mesh(bumperGeo, bumperMat);
+        backBumper.position.set(0, 0, 5.5);
+        trainGroup.add(backBumper);
+
+        // Wheels
+        // Positions relative to train center
+        const wheelPositions = [
+            { x: -2.2, z: -3.5 }, { x: 2.2, z: -3.5 }, // Front
+            { x: -2.2, z: 0 },    { x: 2.2, z: 0 },    // Middle
+            { x: -2.2, z: 3.5 },  { x: 2.2, z: 3.5 }   // Back
+        ];
+
+        wheelGroups = []; // Clear array
+
+        wheelPositions.forEach(pos => {
+            const wheelGroup = new THREE.Group();
+            wheelGroup.position.set(pos.x, -1.5, pos.z); // Adjust height to be below chassis
+            
+            // The wheel geometry
+            const wheelGeo = new THREE.CylinderGeometry(CONFIG.wheelRadius, CONFIG.wheelRadius, 0.5, 24);
+            const wheelMat = new THREE.MeshStandardMaterial({ color: CONFIG.trainColor });
+            const wheelMesh = new THREE.Mesh(wheelGeo, wheelMat);
+            
+            // Rotate the mesh so the flat side faces outward.
+            // For left wheels (x < 0), outward is -X. Default Cylinder Top (+Y) rotated Z 90 points to -X.
+            // For right wheels (x > 0), outward is +X. Default Cylinder Top (+Y) rotated Z -90 points to +X.
+            const isLeft = pos.x < 0;
+            wheelMesh.rotation.z = isLeft ? Math.PI / 2 : -Math.PI / 2;
+            
+            wheelMesh.castShadow = true;
+            
+            // Add a "hub cap" / spoke to visualize rotation
+            // The hub is attached to the Top face (+Y local).
+            // Since we rotated the mesh so +Y is always "Out", we can keep hub at +Y (0.3).
+            const hubGeo = new THREE.BoxGeometry(1.5, 0.2, 0.2); 
+            const hubMat = new THREE.MeshStandardMaterial({ color: CONFIG.accentColor });
+            const hub = new THREE.Mesh(hubGeo, hubMat);
+            hub.position.y = 0.3; // Offset on the wheel face
+            wheelMesh.add(hub);
+            
+            // Add a second cross bar
+            const hub2 = hub.clone();
+            hub2.rotation.y = Math.PI / 2; // Cross shape
+            wheelMesh.add(hub2);
+
+            wheelGroup.add(wheelMesh);
+            trainGroup.add(wheelGroup);
+            wheelGroups.push(wheelGroup);
+        });
+      }
+
+      function updateSpeed(e) {
+        speed = parseFloat(e.target.value);
+        if (isPlaying) {
+            speedDisplay.textContent = (speed * 100).toFixed(0);
+        }
+      }
+
+      function togglePlay() {
+        isPlaying = !isPlaying;
+        
+        if (isPlaying) {
+            toggleBtn.textContent = "PAUSE ENGINE";
+            toggleBtn.classList.replace("bg-blue-600", "bg-amber-500");
+            toggleBtn.classList.replace("hover:bg-blue-700", "hover:bg-amber-600");
+            toggleBtn.classList.replace("shadow-blue-600/30", "shadow-amber-500/30");
+            
+            statusBadge.textContent = "Running";
+            statusBadge.classList.replace("bg-red-100", "bg-green-100");
+            statusBadge.classList.replace("text-red-700", "text-green-700");
+            
+            speedSlider.disabled = false;
+            speedSlider.classList.remove("opacity-50", "cursor-not-allowed");
+            speedDisplay.textContent = (speed * 100).toFixed(0);
+            
+            lastTime = performance.now();
+            animate();
+        } else {
+            toggleBtn.textContent = "START ENGINE";
+            toggleBtn.classList.replace("bg-amber-500", "bg-blue-600");
+            toggleBtn.classList.replace("hover:bg-amber-600", "hover:bg-blue-700");
+            toggleBtn.classList.replace("shadow-amber-500/30", "shadow-blue-600/30");
+            
+            statusBadge.textContent = "Stopped";
+            statusBadge.classList.replace("bg-green-100", "bg-red-100");
+            statusBadge.classList.replace("text-green-700", "text-red-700");
+            
+            speedSlider.disabled = true;
+            speedSlider.classList.add("opacity-50", "cursor-not-allowed");
+            
+            cancelAnimationFrame(animationId);
+        }
+      }
+
+      function animate(time) {
+        animationId = requestAnimationFrame(animate);
+        
+        const delta = (time - lastTime) / 1000;
+        lastTime = time;
+
+        if (isPlaying && delta < 0.1) {
+            // 1. Move the train (Rotate pivot)
+            const angularSpeed = speed * 0.5;
+            
+            // Train faces -Z. Positive Y rotation moves train towards -Z (Forward).
+            trainPivot.rotation.y += angularSpeed * delta;
+
+            // 2. Rotate Wheels
+            // Physics: V = omega * R. 
+            // V_train = angularSpeed * TrackRadius
+            // V_wheel = wheelOmega * WheelRadius
+            // wheelOmega = (angularSpeed * TrackRadius) / WheelRadius
+            const wheelOmega = (angularSpeed * CONFIG.trackRadius) / CONFIG.wheelRadius;
+            
+            wheelGroups.forEach(wheel => {
+                // Wheel axis is X. 
+                // Rolling Forward (-Z direction) requires rotation that moves Top of wheel to -Z.
+                // Right Hand Rule on +X axis: Thumb +X, Fingers curl Y -> Z.
+                // Negative Rotation (-X) curls Y -> -Z.
+                // So -= is correct for Forward motion.
+                wheel.rotation.x -= wheelOmega * delta; 
+            });
+        }
+
+        controls.update();
+        render();
+      }
+
+      function render() {
+        renderer.render(scene, camera);
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        render();
+      }
+
+      init();
+
+    </script>
+  </body>
+</html>

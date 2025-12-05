@@ -1,0 +1,776 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hw3 Exhibition of Impressionnisme - Bright</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f0f0; /* Bright background */
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #333; /* Dark text for contrast */
+        }
+
+        /* 主画布：全屏 */
+        #main-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* UI 层 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* 让鼠标穿透UI层，点击3D物体 */
+        }
+
+        /* 标题 */
+        h1 {
+            position: absolute;
+            top: 20px;
+            left: 30px;
+            margin: 0;
+            font-weight: 300;
+            letter-spacing: 2px;
+            color: #111; /* Dark Title */
+            text-shadow: 0 1px 0 rgba(255,255,255,0.5);
+            pointer-events: auto;
+        }
+
+        /* 监控画面容器模拟 (视觉边框) */
+        .camera-overlay {
+            position: absolute;
+            border: 2px solid #ccc; /* Lighter border for bright theme */
+            background: transparent;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+            pointer-events: auto;
+            cursor: pointer;
+            overflow: hidden;
+            border-radius: 4px;
+            transition: border-color 0.3s;
+        }
+
+        .camera-overlay:hover {
+            border-color: #e74c3c;
+        }
+        
+        .camera-overlay::after {
+            content: 'REC •';
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            color: #e74c3c;
+            font-size: 10px;
+            font-weight: bold;
+            animation: blink 1s infinite;
+        }
+        
+        .camera-label {
+            position: absolute;
+            bottom: 2px;
+            left: 5px;
+            color: #333;
+            font-size: 10px;
+            font-weight: bold;
+            background: rgba(255,255,255,0.7);
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+
+        /* 定义监控窗口位置 */
+        #cam1-border { top: 20px; right: 20px; width: 220px; height: 140px; }
+        #cam2-border { top: 180px; right: 20px; width: 220px; height: 140px; }
+
+        /* 描述面板 */
+        #info-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            max-width: 800px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 25px;
+            border-radius: 4px;
+            border-top: 4px solid #d4af37;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            transform: translateY(150%) translateX(-50%); /* 默认隐藏 */
+            transition: transform 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+            pointer-events: auto;
+        }
+
+        #info-panel.active {
+            transform: translateY(0) translateX(-50%);
+        }
+
+        #info-title {
+            margin: 0 0 10px 0;
+            font-size: 1.5em;
+            color: #222;
+        }
+
+        #info-desc {
+            font-size: 1em;
+            line-height: 1.6;
+            color: #555;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        #close-btn {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 1.5em;
+            transition: color 0.2s;
+        }
+        #close-btn:hover { color: #333; }
+        
+        #exit-cam-btn {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            display: none;
+            pointer-events: auto;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            z-index: 100;
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+        
+        /* 简单的提示 */
+        #tooltip {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            opacity: 0; /* Default hidden until hover */
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 唯一的 Canvas -->
+    <canvas id="main-canvas"></canvas>
+
+    <!-- UI 覆盖层 -->
+    <div id="ui-layer">
+        <h1>IMPRESSIONISM <span style="font-size:0.5em; opacity:0.5; font-style:italic;">Virtual Gallery</span></h1>
+
+        <div id="cam1-border" class="camera-overlay" onclick="focusOnCamera(1)">
+            <div class="camera-label">CAM 01 - OVERLOOK</div>
+        </div>
+        <div id="cam2-border" class="camera-overlay" onclick="focusOnCamera(2)">
+            <div class="camera-label">CAM 02 - CORNER</div>
+        </div>
+
+        <div id="tooltip">Click to View</div>
+
+        <button id="exit-cam-btn" onclick="resetView()">EXIT CAMERA VIEW</button>
+
+        <div id="info-panel">
+            <button id="close-btn" onclick="resetView()">×</button>
+            <h2 id="info-title">Title</h2>
+            <p id="info-desc">Description goes here...</p>
+        </div>
+    </div>
+
+    <!-- 依赖库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+
+<script>
+    // --- 配置数据 ---
+    // 展馆尺寸：X宽840(左右各420), Z深400(前后各200)
+    // 墙壁表面坐标：
+    // Back Wall: Z = -190 (Wall center -200, thickness 20)
+    // Front Wall: Z = 190
+    // Right Wall: X = 410
+    // Left Wall: X = -410
+    
+    const paintingsData = [
+        {
+            name: "睡蓮 (Water Lilies)",
+            url: "https://upload.wikimedia.org/wikipedia/commons/7/7c/Water_lilies_Monet.jpg",
+            desc: "《睡蓮》是法國印象派畫家莫奈晚年的代表作，總共約有250幅。描繪的是莫奈在吉維尼花園中的睡蓮，捕捉了光影在水面上的變幻。",
+            pos: { x: 200, y: 50, z: -190 }, 
+            rot: { x: 0, y: 0, z: 0 }, // Faces +Z (Room Center)
+            size: { w: 90, h: 60 }
+        },
+        {
+            name: "印象·日出 (Impression, Sunrise)",
+            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/Claude_Monet%2C_Impression%2C_soleil_levant.jpg/1200px-Claude_Monet%2C_Impression%2C_soleil_levant.jpg",
+            desc: "1872年莫奈描繪故鄉勒阿弗爾港口景色的作品。路易·樂華根據這幅畫提出了“印象派”這一稱呼，標誌著印象派的誕生。",
+            pos: { x: -200, y: 50, z: -190 },
+            rot: { x: 0, y: 0, z: 0 },
+            size: { w: 90, h: 60 }
+        },
+        {
+            name: "有烏鴉的麥田 (Wheatfield with Crows)",
+            url: "https://upload.wikimedia.org/wikipedia/commons/f/f3/Vincent_van_Gogh_%281853-1890%29_-_Wheat_Field_with_Crows_%281890%29.jpg",
+            desc: "梵谷創作於1890年7月的一幅油畫。黑暗的天空和三條岔路表達了畫家精神上的困擾，常被認為是其絕筆之作。",
+            pos: { x: 200, y: 50, z: 190 },
+            rot: { x: 0, y: Math.PI, z: 0 }, // Faces -Z (Room Center)
+            size: { w: 90, h: 60 }
+        },
+        {
+            name: "向日葵 (Sunflowers)",
+            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Vincent_Willem_van_Gogh_127.jpg/1200px-Vincent_Willem_van_Gogh_127.jpg",
+            desc: "梵谷最著名的系列靜物油畫。明亮的黃色充滿了生命力，象徵著感激和友誼。他曾用這些畫裝飾阿爾勒的黃房子。",
+            pos: { x: -200, y: 50, z: 190 },
+            rot: { x: 0, y: Math.PI, z: 0 },
+            size: { w: 60, h: 75 }
+        },
+        {
+            name: "煎餅磨坊的舞會 (Bal du moulin de la Galette)",
+            url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Pierre-Auguste_Renoir%2C_Le_Moulin_de_la_Galette.jpg/1200px-Pierre-Auguste_Renoir%2C_Le_Moulin_de_la_Galette.jpg",
+            desc: "雷諾瓦的傑作，描繪了巴黎蒙馬特區的熱鬧午後。光斑透過樹葉灑在人群身上，展現了印象派對光影與色彩的極致運用。",
+            pos: { x: -410, y: 50, z: 0 },
+            rot: { x: 0, y: Math.PI / 2, z: 0 }, // Faces +X
+            size: { w: 90, h: 60 }
+        }
+    ];
+
+    // --- 全局变量 ---
+    let scene, camera, renderer, controls;
+    let clock = new THREE.Clock();
+    let raycaster = new THREE.Raycaster();
+    let mouse = new THREE.Vector2();
+    let pickableObjects = [];
+    
+    // Security Cams
+    let securityCam1, securityCam2;
+    let pivot1, pivot2; // Rotation points
+    let cam1BaseRot = 0;
+    let cam2BaseRot = 0;
+    
+    let isFocused = false;
+    let activeSecurityCam = null; // Reference to the security camera currently being viewed
+    
+    // Initial Camera: Inside the room, right-front corner, looking towards center/left
+    let initialCameraState = { 
+        pos: new THREE.Vector3(280, 50, 140), 
+        target: new THREE.Vector3(0, 40, -50) 
+    };
+
+    init();
+    animate();
+
+    function init() {
+        // 1. Scene
+        const container = document.getElementById('main-canvas');
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf5f5f5); // Soft white
+        // NO FOG
+
+        // 2. Camera
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 2000);
+        camera.position.copy(initialCameraState.pos);
+
+        // 3. Renderer
+        renderer = new THREE.WebGLRenderer({ canvas: container, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // 4. Controls
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 20;
+        controls.maxDistance = 800;
+        controls.maxPolarAngle = Math.PI / 2 - 0.02; // Floor collision prevention
+        controls.target.copy(initialCameraState.target);
+        
+        // Immediately update controls to snap to target
+        controls.update();
+
+        // 5. Environment
+        buildGallery();
+        setupLighting();
+        setupPaintings();
+        setupSecuritySystem();
+
+        // 6. Listeners
+        window.addEventListener('resize', onWindowResize, false);
+        window.addEventListener('click', onClick, false);
+        window.addEventListener('mousemove', onMouseMove, false);
+    }
+
+    function buildGallery() {
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(1200, 800);
+        const floorMat = new THREE.MeshStandardMaterial({ 
+            color: 0xdddddd, 
+            roughness: 0.1, 
+            metalness: 0.1 
+        });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Walls
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
+        const wallHeight = 140;
+        const thickness = 20;
+        
+        // Define walls around center 0,0
+        const walls = [
+            // Back Wall (-Z)
+            { size: [840, wallHeight, thickness], pos: [0, wallHeight/2, -200] },
+            // Front Wall (+Z)
+            { size: [840, wallHeight, thickness], pos: [0, wallHeight/2, 200] },
+            // Left Wall (-X)
+            { size: [thickness, wallHeight, 400], pos: [-420, wallHeight/2, 0] },
+            // Right Wall (+X)
+            { size: [thickness, wallHeight, 400], pos: [420, wallHeight/2, 0] }
+        ];
+
+        walls.forEach(config => {
+            const w = new THREE.Mesh(new THREE.BoxGeometry(...config.size), wallMat);
+            w.position.set(...config.pos);
+            w.castShadow = true;
+            w.receiveShadow = true;
+            scene.add(w);
+        });
+
+        // Simple Benches
+        const benchMat = new THREE.MeshStandardMaterial({ color: 0x8d6e63 });
+        const benchGeo = new THREE.BoxGeometry(80, 12, 30);
+        [ [-150, 0], [150, 0] ].forEach(([x, z]) => {
+            const bench = new THREE.Mesh(benchGeo, benchMat);
+            bench.position.set(x, 6, z);
+            bench.castShadow = true;
+            bench.receiveShadow = true;
+            scene.add(bench);
+        });
+    }
+
+    function setupLighting() {
+        const ambient = new THREE.AmbientLight(0xffffff, 0.7); // Slightly brighter
+        scene.add(ambient);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        dirLight.position.set(200, 300, 150);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.set(2048, 2048);
+        dirLight.shadow.camera.top = 500;
+        dirLight.shadow.camera.bottom = -500;
+        dirLight.shadow.camera.left = -500;
+        dirLight.shadow.camera.right = 500;
+        scene.add(dirLight);
+    }
+
+    function setupPaintings() {
+        const loader = new THREE.TextureLoader();
+        loader.crossOrigin = 'anonymous';
+
+        // Dark Wood Frame Material
+        const frameMat = new THREE.MeshStandardMaterial({
+            color: 0x3e2723,   // Dark Wood
+            roughness: 0.4,
+            metalness: 0.1
+        });
+
+        const frameDepth = 6;   // Frame thickness
+        const frameWidth = 8;   // Visual width of the border
+
+        paintingsData.forEach((data, i) => {
+
+            // --- Main group for painting + frame ---
+            const group = new THREE.Group();
+            group.position.set(data.pos.x, data.pos.y, data.pos.z);
+            group.rotation.set(data.rot.x, data.rot.y, data.rot.z);
+
+            // ====== Frame Construction ======
+            const topBar = new THREE.Mesh(
+                new THREE.BoxGeometry(data.size.w + frameWidth * 2, frameWidth, frameDepth),
+                frameMat
+            );
+            topBar.position.set(0, (data.size.h + frameWidth) / 2, frameDepth / 2);
+            topBar.castShadow = true;
+
+            const botBar = new THREE.Mesh(
+                new THREE.BoxGeometry(data.size.w + frameWidth * 2, frameWidth, frameDepth),
+                frameMat
+            );
+            botBar.position.set(0, -(data.size.h + frameWidth) / 2, frameDepth / 2);
+            botBar.castShadow = true;
+
+            const leftBar = new THREE.Mesh(
+                new THREE.BoxGeometry(frameWidth, data.size.h, frameDepth),
+                frameMat
+            );
+            leftBar.position.set(-(data.size.w + frameWidth) / 2, 0, frameDepth / 2);
+            leftBar.castShadow = true;
+
+            const rightBar = new THREE.Mesh(
+                new THREE.BoxGeometry(frameWidth, data.size.h, frameDepth),
+                frameMat
+            );
+            rightBar.position.set((data.size.w + frameWidth) / 2, 0, frameDepth / 2);
+            rightBar.castShadow = true;
+
+            // ====== Painting Canvas ======
+            const tex = loader.load(data.url);
+            const paintGeo = new THREE.PlaneGeometry(data.size.w, data.size.h);
+            const paintMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+            const paintMesh = new THREE.Mesh(paintGeo, paintMat);
+
+            // Recessed slightly into the frame
+            paintMesh.position.set(0, 0, 1.0);
+            paintMesh.userData = { id: i, ...data };
+
+            group.add(topBar, botBar, leftBar, rightBar, paintMesh);
+            pickableObjects.push(paintMesh);
+
+            // ====== Spotlight (with fixed target object) ======
+            const spot = new THREE.SpotLight(0xfff5e6, 2.0);
+
+            // Determine light position based on wall normal
+            const lightDist = 120;
+            const lightUp = 80;
+            const normal = new THREE.Vector3(0, 0, 1).applyEuler(group.rotation);
+
+            const lightPos = group.position.clone()
+                .add(normal.multiplyScalar(lightDist))
+                .add(new THREE.Vector3(0, lightUp, 0));
+
+            spot.position.copy(lightPos);
+
+            const targetObj = new THREE.Object3D();
+            targetObj.position.set(0, 0, 1.0); // Center of painting
+            group.add(targetObj);              // Follow painting
+            spot.target = targetObj;
+
+            spot.angle = 0.5;
+            spot.penumbra = 0.3;
+            spot.distance = 300;
+            spot.castShadow = true;
+
+            scene.add(group);
+            scene.add(spot);
+        });
+    }
+
+
+    function setupSecuritySystem() {
+        const mountMat = new THREE.MeshStandardMaterial({ color: 0x333333 }); // Dark Grey Base
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff });  // White Camera Body
+        const lensMat = new THREE.MeshBasicMaterial({ color: 0x000000 });     // Black Glass
+
+        // Helper to build a camera rig
+        const createCamRig = (pos, lookTarget) => {
+            // 1. Mount (visual)
+            const mountGeo = new THREE.CylinderGeometry(5, 5, 2, 16);
+            const mount = new THREE.Mesh(mountGeo, mountMat);
+            mount.position.copy(pos);
+            mount.rotation.x = Math.PI / 2; // flat against wall
+            scene.add(mount);
+
+            // 2. Pivot (rotates left/right). Position matches mount
+            const pivot = new THREE.Group();
+            pivot.position.copy(pos);
+            scene.add(pivot);
+
+            // 3. Body Group (attached to pivot). 
+            // We build geometry along the NEGATIVE Z axis.
+            const bodyGroup = new THREE.Group();
+            bodyGroup.position.set(0, 0, 0);
+            pivot.add(bodyGroup);
+
+            // Visible box (camera model)
+            const box = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 20), bodyMat);
+            // Center at -10 so it extends from 0 to -20
+            box.position.set(0, 0, -10);
+            bodyGroup.add(box);
+
+            // Ring & glass (front, at -20)
+            const ring = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 2, 32), bodyMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.set(0, 0, -20);
+            bodyGroup.add(ring);
+
+            const glass = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 2, 32), lensMat);
+            glass.rotation.x = Math.PI / 2;
+            glass.position.set(0, 0, -21); // Slightly in front of ring
+            bodyGroup.add(glass);
+
+            // Tilt body down slightly
+            bodyGroup.rotation.x = -Math.PI / 12; 
+
+            // 4. Lens Anchor (where the camera actually sits)
+            // It must be IN FRONT of the glass (more negative Z)
+            // Increased distance to -55 to avoid clipping through the model
+            const lensAnchor = new THREE.Object3D();
+            lensAnchor.position.set(0, 0, -55); 
+            bodyGroup.add(lensAnchor);
+
+            // 5. The actual Camera
+            // const cam = new THREE.PerspectiveCamera(65, 220 / 140, 1, 1200);
+            // cam.position.set(0, 0, 0); 
+            // // Standard Three.js cameras look down -Z. 
+            // // Since our geometry is on -Z, and camera is at -55 looking further -Z, 
+            // // it will see the room, not the camera body.
+            // lensAnchor.add(cam);
+
+            // // 6. Calculate rotation
+            // // We want the pivot's -Z axis to point at the lookTarget.
+            // // pivot.lookAt points +Z at target.
+            // // So we use lookAt, then rotate Y by 180.
+            // const lookAtOnLevel = new THREE.Vector3(lookTarget.x, pivot.position.y, lookTarget.z);
+            // pivot.lookAt(lookAtOnLevel);
+            // pivot.rotateY(Math.PI); // Flip so -Z faces target
+            
+            // const baseRotationY = pivot.rotation.y;
+
+            // return { pivot, cam, baseRotationY };
+              const cam = new THREE.PerspectiveCamera(65, 220 / 140, 1, 1200);
+    cam.position.set(0, 0, 0);
+    cam.aspect = 220 / 140;
+    cam.updateProjectionMatrix(); // <- ensure projection matrix valid immediately
+    // Standard Three.js cameras look down -Z...
+    lensAnchor.add(cam);
+
+    // ...（后面部分不变）...
+    const lookAtOnLevel = new THREE.Vector3(lookTarget.x, pivot.position.y, lookTarget.z);
+    pivot.lookAt(lookAtOnLevel);
+    pivot.rotateY(Math.PI); // Flip so -Z faces target
+
+    const baseRotationY = pivot.rotation.y;
+
+    return { pivot, cam, baseRotationY };
+        };
+
+        const roomCenter = new THREE.Vector3(0, 40, 0);
+
+        // Camera 1 (top-left)
+        const rig1 = createCamRig(new THREE.Vector3(-380, 120, -180), roomCenter);
+        securityCam1 = rig1.cam;
+        pivot1 = rig1.pivot;
+        cam1BaseRot = rig1.baseRotationY;
+
+        // Camera 2 (top-right)
+        const rig2 = createCamRig(new THREE.Vector3(380, 120, 180), roomCenter);
+        securityCam2 = rig2.cam;
+        pivot2 = rig2.pivot;
+        cam2BaseRot = rig2.baseRotationY;
+    }
+
+    function onMouseMove(e) {
+        if (activeSecurityCam) return; // Disable hover effects in security mode
+        
+        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        
+        const hits = raycaster.intersectObjects(pickableObjects);
+        const tooltip = document.getElementById('tooltip');
+        
+        if (hits.length > 0) {
+            document.body.style.cursor = 'pointer';
+            tooltip.style.opacity = 1;
+            tooltip.style.left = e.clientX + 15 + 'px';
+            tooltip.style.top = e.clientY + 15 + 'px';
+        } else {
+            document.body.style.cursor = 'default';
+            tooltip.style.opacity = 0;
+        }
+    }
+
+    function onClick(e) {
+        if (activeSecurityCam) return; // Disable clicking paintings in security mode
+        
+        if (e.target.closest('.camera-overlay') || e.target.closest('#info-panel')) return;
+        
+        raycaster.setFromCamera(mouse, camera);
+        const hits = raycaster.intersectObjects(pickableObjects);
+        if (hits.length > 0) {
+            focusOnPainting(hits[0].object);
+        } else if (isFocused) {
+            resetView();
+        }
+    }
+
+    function focusOnPainting(mesh) {
+        isFocused = true;
+        const data = mesh.userData;
+        
+        document.getElementById('info-title').innerText = data.name;
+        document.getElementById('info-desc').innerText = data.desc;
+        document.getElementById('info-panel').classList.add('active');
+
+        const group = mesh.parent;
+        const normal = new THREE.Vector3(0,0,1).applyQuaternion(group.quaternion);
+        
+        // Distance: Painting size + visual offset
+        const dist = Math.max(data.size.w, data.size.h) * 1.5;
+        
+        // Target: Center of painting group
+        // Camera Pos: Center + Normal * Dist
+        const targetPos = group.position.clone().add(normal.multiplyScalar(dist));
+        
+        gsap.to(camera.position, {
+            x: targetPos.x,
+            y: targetPos.y, 
+            z: targetPos.z,
+            duration: 1.5,
+            ease: "power2.out"
+        });
+        
+        gsap.to(controls.target, {
+            x: group.position.x,
+            y: group.position.y,
+            z: group.position.z,
+            duration: 1.5,
+            ease: "power2.out"
+        });
+    }
+
+    window.focusOnCamera = function(id) {
+        if(isFocused && !activeSecurityCam) return;
+        
+        activeSecurityCam = id === 1 ? securityCam1 : securityCam2;
+        
+        // Disable controls to prevent fighting
+        controls.enabled = false;
+        
+        // Show exit button
+        document.getElementById('exit-cam-btn').style.display = 'block';
+        document.getElementById('info-panel').classList.remove('active');
+    }
+
+    window.resetView = function() {
+        // Reset state
+        isFocused = false;
+        activeSecurityCam = null;
+        controls.enabled = true;
+        
+        document.getElementById('exit-cam-btn').style.display = 'none';
+        document.getElementById('info-panel').classList.remove('active');
+        
+        gsap.to(camera.position, {
+            x: initialCameraState.pos.x,
+            y: initialCameraState.pos.y,
+            z: initialCameraState.pos.z,
+            duration: 1.5,
+            ease: "power2.inOut"
+        });
+        gsap.to(controls.target, {
+            x: initialCameraState.target.x,
+            y: initialCameraState.target.y,
+            z: initialCameraState.target.z,
+            duration: 1.5
+        });
+    };
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    const tempVec = new THREE.Vector3();
+    const tempQuat = new THREE.Quaternion();
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const time = clock.getElapsedTime();
+        
+        if (!activeSecurityCam) {
+            controls.update();
+        }
+
+        // --- Security Camera Scanning (Rotate Pivot ONLY) ---
+        if (pivot1 && pivot2) {
+            // Smoothly pan Left/Right using Sine wave
+            // BaseRot is the angle facing the room center
+            pivot1.rotation.y = cam1BaseRot + Math.sin(time * 0.5) * 0.6; // Scan +/- ~34 degrees
+            pivot2.rotation.y = cam2BaseRot + Math.sin(time * 0.4 + 1) * 0.6; 
+        }
+        
+        // --- Lock Main Camera to Security Camera if Active ---
+        if (activeSecurityCam) {
+            activeSecurityCam.getWorldPosition(tempVec);
+            activeSecurityCam.getWorldQuaternion(tempQuat);
+            
+            // Hard snap to match exactly
+            camera.position.copy(tempVec);
+            camera.quaternion.copy(tempQuat);
+        }
+
+        // 1. Main Scene
+        renderer.setScissorTest(false);
+        renderer.clear();
+        renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+        renderer.render(scene, camera);
+
+        // 2. Security Cam Overlays
+        renderCam(securityCam1, 'cam1-border');
+        renderCam(securityCam2, 'cam2-border');
+    }
+
+function renderCam(cam, divId) {
+    const rendererCanvasRect = renderer.domElement.getBoundingClientRect();
+    const el = document.getElementById(divId);
+    const rect = el.getBoundingClientRect();
+
+    // 计算在 renderer 内的相对位置
+    const left   = rect.left - rendererCanvasRect.left;
+    const top    = rect.top  - rendererCanvasRect.top;
+    const width  = rect.width;
+    const height = rect.height;
+
+    const bottom = rendererCanvasRect.height - (top + height);
+
+    // 更新相机 aspect
+    cam.aspect = width / height;
+    cam.updateProjectionMatrix();
+
+    // 设置正确的 viewport / scissor
+    renderer.setViewport(left, bottom, width, height);
+    renderer.setScissor(left, bottom, width, height);
+    renderer.setScissorTest(true);
+
+    renderer.render(scene, cam);
+}
+
+// function renderCam(cam, divId) {
+//     renderer.setScissorTest(false);
+//     renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
+//     renderer.render(scene, cam);
+// }
+
+</script>
+</body>
+</html>

@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Dancer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #171717; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+        .glass-panel {
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Custom range slider styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #a855f7;
+            margin-top: -6px;
+            cursor: pointer;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #4b5563;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="font-sans text-white selection:bg-purple-500 selection:text-white">
+
+    <!-- UI Overlay -->
+    <div class="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-10">
+        
+        <!-- Header -->
+        <div class="pointer-events-auto flex justify-between items-start">
+            <div>
+                <h1 class="text-4xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600 drop-shadow-sm">
+                    DANCER 3D
+                </h1>
+                <p class="text-neutral-400 text-xs font-bold tracking-[0.2em] uppercase mt-1">
+                   Three.js
+                </p>
+            </div>
+            <div class="glass-panel rounded-full px-4 py-2 flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse" id="status-dot"></div>
+                <span class="text-xs font-mono text-purple-200" id="status-text">PAUSED</span>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="pointer-events-auto self-center mb-8 flex flex-col items-center gap-6">
+            
+            <!-- Main Play Button -->
+            <button id="play-btn" class="group relative flex items-center justify-center w-20 h-20 rounded-full bg-green-500 hover:bg-green-600 shadow-[0_0_30px_rgba(34,197,94,0.4)] transition-all duration-300 hover:scale-105 active:scale-95">
+                <svg id="icon-play" class="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <svg id="icon-pause" class="w-8 h-8 text-white hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+
+            <!-- Volume Control -->
+            <div class="glass-panel px-6 py-3 rounded-2xl flex items-center gap-4">
+                <button id="mute-btn" class="text-neutral-400 hover:text-white transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                </button>
+                <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.5" class="w-32">
+            </div>
+
+            <p class="text-neutral-600 text-xs">Audio</p>
+        </div>
+    </div>
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+  <!-- <audio id="bgm"autoplay loop style="display:none" >
+  <source src="../sounds/scream1.mp3"autostart="true" type='audio/mp3'> -->
+    <!-- Import Map to resolve 'three' in addons -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- Logic -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 1. CONFIGURATION & DATA ---
+        
+        const AUDIO_URL = "../component/scream1.mp3"; // Path to your audio file
+        const ANIMATION_PERIOD = 7; // seconds
+        
+        // Colors
+        const COLORS = {
+            skin: 0xD2B48C,
+            shirt: 0x2a4365,
+            pants: 0x1a202c,
+            hatBrim: 0x4a5568,
+            hatTop: 0x2d3748,
+            shoes: 0x111111
+        };
+
+        // Pose Data
+        const defaultPose = {
+            headupy: 0, heady: 3, headx: 0, headhigh: 0,
+            bodyy: 0, bodyhigh: 0, bodyx: 0,
+            leftuphandx: 0, leftlowhandx: 0, leftuphandy: 0, leftuphandz: 0,
+            rightuphandx: 0, rightuphandy: 0, rightuphandz: 0, rightlowhandx: 0,
+            leftuplegx: 0, leftlowlegx: 0, leftuplegy: 0, leftuplegz: 0,
+            rightuplegy: 0, rightuplegz: 0, rightuplegx: 0, rightlowlegx: 0,
+        };
+
+        const createPose = (overrides) => ({ ...defaultPose, ...overrides });
+
+        const poses = {
+            pose1: createPose({}),
+            pose2: createPose({
+                heady: 1.4, headhigh: -1.75,
+                bodyy: -1.6, bodyhigh: -1.75,
+                leftuphandx: -0.54, leftlowhandx: -0.57, leftuphandy: -0.11, leftuphandz: -0.09,
+                rightuphandx: 0.50, rightlowhandx: -0.67,
+                leftuplegx: -0.48, leftlowlegx: 0.50,
+                rightuplegx: 0.19, rightlowlegx: 0.42
+            }),
+            pose3: createPose({
+                heady: 1.4, headx: 6, headhigh: -1.96,
+                bodyy: -1.6, bodyhigh: -1.96, bodyx: 6,
+                leftuphandx: 0.82, leftlowhandx: -0.57, leftuphandy: -0.11, leftuphandz: -0.09,
+                rightuphandx: -0.41, rightlowhandx: -0.67,
+                leftuplegx: 0.04, leftlowlegx: 0.46, leftuplegy: 0.04,
+                rightuplegx: -0.50, rightlowlegx: 0.69
+            }),
+            pose4: createPose({
+                heady: 4.6, headhigh: -1.75,
+                bodyy: 1.6, bodyhigh: -1.75,
+                leftuphandx: -0.50, leftlowhandx: -0.67,
+                rightuphandx: 0.54, rightuphandy: 0.11, rightuphandz: 0.09, rightlowhandx: -0.57,
+                leftuplegx: -0.48, leftlowlegx: 0.50,
+                rightuplegx: 0.19, rightlowlegx: 0.42
+            }),
+            pose5: createPose({
+                heady: 4.6, headx: -6, headhigh: -1.96,
+                bodyy: 1.6, bodyhigh: -1.96, bodyx: -6,
+                leftuphandx: 0.82, leftlowhandx: -0.57, leftuphandy: -0.11, leftuphandz: -0.09,
+                rightuphandx: -0.41, rightuphandy: 0.11, rightuphandz: 0.09, rightlowhandx: -0.67,
+                leftuplegx: 0.04, leftlowlegx: 0.46, leftuplegy: 0.04,
+                rightuplegx: -0.50, rightlowlegx: 0.69
+            }),
+            pose6: createPose({
+                headupy: 0.5, heady: 1.4, headx: -6, headhigh: -3.16,
+                bodyhigh: -3.16, bodyx: -4,
+                leftuphandz: -1.6,
+                rightuphandx: -1.6, rightuphandz: 1.6, rightlowhandx: -2,
+                leftuplegx: -0.70, leftlowlegx: 1,
+                rightuplegy: -0.24, rightuplegz: -0.59, rightuplegx: 0.41, rightlowlegx: -0.52
+            }),
+            pose7: createPose({
+                headupy: 0.5, heady: 4.6, headx: 6, headhigh: -3.16,
+                bodyhigh: -3.16, bodyx: 4,
+                leftuphandx: -1.57, leftlowhandx: -2, leftuphandz: -1.6,
+                rightuphandx: -1.6, rightuphandz: 1.6,
+                leftuplegx: 0.41, leftlowlegx: -0.1, leftuplegy: -0.24, leftuplegz: 0.59,
+                rightuplegx: -0.70, rightlowlegx: 1
+            }),
+            pose8: createPose({
+                headupy: 0.5, heady: 3, headx: 4, headhigh: -2.4,
+                bodyhigh: -2.2, bodyx: 4,
+                leftuphandx: -3.5, leftlowhandx: -0.6, leftuphandz: -0.5,
+                rightuphandx: -0.2, rightuphandy: -1, rightuphandz: 0.3, rightlowhandx: -1,
+                leftuplegx: -0.5, leftlowlegx: 0.6, leftuplegz: -0.4,
+                rightuplegz: 0.1, rightuplegx: -0.5, rightlowlegx: 0.76
+            }),
+            pose9: createPose({
+                headupy: 0.5, heady: 3, headx: 4, headhigh: -2.4,
+                bodyhigh: -2.2, bodyx: 4,
+                leftuphandx: -0.2, leftlowhandx: -1, leftuphandy: 1, leftuphandz: -0.3,
+                rightuphandx: -3.5, rightuphandz: 0.5, rightlowhandx: -0.6,
+                leftuplegx: -0.5, leftlowlegx: 0.76, leftuplegz: -0.1,
+                rightuplegz: 0.4, rightuplegx: -0.5, rightlowlegx: 0.6
+            })
+        };
+
+        const animationKeys = [
+            { s: 0, pose: poses.pose1 },
+            { s: 0.055, pose: poses.pose2 },
+            { s: 0.11, pose: poses.pose3 },
+            { s: 0.16, pose: poses.pose1 },
+            { s: 0.22, pose: poses.pose4 },
+            { s: 0.27, pose: poses.pose5 },
+            { s: 0.33, pose: poses.pose1 },
+            { s: 0.416, pose: poses.pose6 },
+            { s: 0.5, pose: poses.pose1 },
+            { s: 0.58, pose: poses.pose7 },
+            { s: 0.67, pose: poses.pose1 },
+            { s: 0.75, pose: poses.pose8 },
+            { s: 0.83, pose: poses.pose1 },
+            { s: 0.91, pose: poses.pose9 },
+            { s: 1, pose: poses.pose1 }
+        ];
+
+        // --- 2. SCENE SETUP ---
+
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x171717);
+        // Add fog for depth
+        scene.fog = new THREE.FogExp2(0x171717, 0.002);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1000);
+        camera.position.set(0, 120, 300);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.minDistance = 100;
+        controls.maxDistance = 600;
+        controls.maxPolarAngle = Math.PI / 2 - 0.1;
+        controls.enableDamping = true;
+
+        // --- LIGHTING IMPROVEMENTS ---
+        
+        // 1. Hemisphere Light (Sky/Ground) - General fill
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2); 
+        hemiLight.position.set(0, 200, 0);
+        scene.add(hemiLight);
+
+        // 2. Directional Light (Main Key Light - like Sun)
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+        dirLight.position.set(-50, 150, 80);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 500;
+        // Make shadow frustum large enough
+        dirLight.shadow.camera.left = -100;
+        dirLight.shadow.camera.right = 100;
+        dirLight.shadow.camera.top = 100;
+        dirLight.shadow.camera.bottom = -100;
+        scene.add(dirLight);
+
+        // 3. Keep SpotLight for dramatic highlights, but adjusted
+        const spotLight = new THREE.SpotLight(0xffffff, 500);
+        spotLight.position.set(0, 220, 100);
+        spotLight.angle = Math.PI / 4;
+        spotLight.penumbra = 0.5;
+        // Optional: Spot light shadows can be disabled if DirLight handles them to save perf
+        spotLight.castShadow = false; 
+        scene.add(spotLight);
+
+        // 4. Accent Lights (Colors)
+        const accentLight1 = new THREE.PointLight(0xa855f7, 100, 400); // Purple
+        accentLight1.position.set(-100, 100, -100);
+        scene.add(accentLight1);
+
+        const accentLight2 = new THREE.PointLight(0xf97316, 100, 400); // Orange
+        accentLight2.position.set(100, 50, 100);
+        scene.add(accentLight2);
+
+        // Environment
+        const floorGeo = new THREE.CircleGeometry(120, 64);
+        // const floorMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.2, metalness: 0.5 });
+       var loader = new THREE.TextureLoader();
+  loader.crossOrigin = '';
+  var texturestage = loader.load ( 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQo7YQ1J2n42y5rBe7-53FbfN0ovs6JPC0rKwq0D6UyVTFYcpaM' );
+  var texturefloor = loader.load ( 'https://http2.mlstatic.com/madera-maciza-haya-D_NQ_NP_686028-MLA25636871744_062017-F.jpg' );
+  	   const floorMat = new THREE.MeshLambertMaterial ({map:texturefloor}); 
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        const stageBaseGeo = new THREE.CircleGeometry(130, 64);
+        const stageBaseMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const stageBase = new THREE.Mesh(stageBaseGeo, stageBaseMat);
+        stageBase.rotation.x = -Math.PI / 2;
+        stageBase.position.y = -1;
+        scene.add(stageBase);
+
+        const bgWall = new THREE.Mesh(
+            new THREE.PlaneGeometry(300, 200),
+        	new THREE.MeshPhongMaterial ({map:texturestage,side:THREE.DoubleSide})
+        );
+        bgWall.position.set(0, 60, -80);
+        bgWall.receiveShadow = true;
+        scene.add(bgWall);
+
+        // Steps
+        for (let i = 1; i <= 3; i++) {
+            const step = new THREE.Mesh(
+                new THREE.BoxGeometry(80 - (i * 10), 4, 10),
+                new THREE.MeshStandardMaterial({ color: 0x444444 })
+            );
+            step.position.set(0, i * 4, -60 + (-i * 10));
+            step.receiveShadow = true;
+            scene.add(step);
+        }
+
+        // --- 3. CHARACTER BUILDER ---
+
+        const materials = {
+            skin: new THREE.MeshStandardMaterial({ color: COLORS.skin }),
+            shirt: new THREE.MeshStandardMaterial({ color: COLORS.shirt }),
+            pants: new THREE.MeshStandardMaterial({ color: COLORS.pants }),
+            hatBrim: new THREE.MeshStandardMaterial({ color: COLORS.hatBrim }),
+            hatTop: new THREE.MeshStandardMaterial({ color: COLORS.hatTop }),
+            shoes: new THREE.MeshStandardMaterial({ color: COLORS.shoes }),
+            logo: new THREE.MeshStandardMaterial({ color: 0x4299e1 }),
+            black: new THREE.MeshStandardMaterial({ color: 0x000000 })
+        };
+
+        const parts = {}; // Store references for animation
+
+        // Body Group
+        const bodyGroup = new THREE.Group();
+        bodyGroup.position.set(0, 64, 0);
+        parts.body = bodyGroup;
+        scene.add(bodyGroup);
+
+        // Torso
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(20, 30, 9), materials.shirt);
+        torso.castShadow = true;
+        torso.receiveShadow = true;
+        bodyGroup.add(torso);
+
+        const logo = new THREE.Mesh(new THREE.PlaneGeometry(14, 25), materials.logo);
+        logo.position.set(0, 0, 4.51); // slightly in front
+        torso.add(logo);
+
+        // Head Group
+        // FIX: Moved Head Y up to 84 to prevent clipping with body (79.5 was too low)
+        const headGroup = new THREE.Group();
+        headGroup.position.set(0, 84, 0); 
+        parts.head = headGroup;
+        scene.add(headGroup); 
+
+        const headMesh = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 12.5, 20), materials.skin);
+        headMesh.castShadow = true;
+        headGroup.add(headMesh);
+
+        const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 2, 20), materials.hatBrim);
+        hatBrim.position.y = 6;
+        hatBrim.castShadow = true;
+        headGroup.add(hatBrim);
+
+        const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 7, 20), materials.hatTop);
+        hatTop.position.y = 3 + 6;
+        hatTop.castShadow = true;
+        headGroup.add(hatTop);
+        
+        // Eyes
+        // Positioned at +Z (Front)
+        const eye1 = new THREE.Mesh(new THREE.SphereGeometry(0.8), materials.black);
+        eye1.position.set(2, 2, 6);
+        headGroup.add(eye1);
+        const eye2 = new THREE.Mesh(new THREE.SphereGeometry(0.8), materials.black);
+        eye2.position.set(-2, 2, 6);
+        headGroup.add(eye2);
+
+        // Arms Helper
+        function createArm(isLeft) {
+            const side = isLeft ? -1 : 1;
+            const group = new THREE.Group();
+            group.position.set(side * 12.5, 11.5, 0);
+            
+            const joint = new THREE.Mesh(new THREE.SphereGeometry(1.3), materials.shirt);
+            group.add(joint);
+
+            const upperArm = new THREE.Mesh(new THREE.BoxGeometry(5, 15, 5), materials.shirt);
+            upperArm.position.y = -7.5;
+            upperArm.castShadow = true;
+            group.add(upperArm);
+
+            const lowerArmGroup = new THREE.Group(); // Pivot point for lower arm
+            lowerArmGroup.position.y = -7.5; // End of upper arm
+            upperArm.add(lowerArmGroup);
+
+            const lowerArm = new THREE.Mesh(new THREE.BoxGeometry(5, 15, 5), materials.skin);
+            lowerArm.position.y = -7.5; // Center of lower arm relative to pivot
+            lowerArm.castShadow = true;
+            lowerArmGroup.add(lowerArm);
+
+            const hand = new THREE.Mesh(new THREE.SphereGeometry(2.5), materials.skin);
+            hand.position.y = -8;
+            lowerArm.add(hand);
+
+            return { group, lowerArm: lowerArmGroup };
+        }
+
+        const leftArm = createArm(true);
+        parts.leftUpHand = leftArm.group;
+        parts.leftLowHand = leftArm.lowerArm;
+        bodyGroup.add(leftArm.group);
+
+        const rightArm = createArm(false);
+        parts.rightUpHand = rightArm.group;
+        parts.rightLowHand = rightArm.lowerArm;
+        bodyGroup.add(rightArm.group);
+
+        // Legs Helper
+        function createLeg(isLeft) {
+            const side = isLeft ? -1 : 1;
+            const group = new THREE.Group();
+            group.position.set(side * 5, -16, 0); // Hip position
+
+            const upperLeg = new THREE.Mesh(new THREE.BoxGeometry(6.5, 18, 6.5), materials.pants);
+            upperLeg.position.y = -9;
+            upperLeg.castShadow = true;
+            group.add(upperLeg);
+
+            const lowerLegGroup = new THREE.Group();
+            lowerLegGroup.position.y = -9;
+            upperLeg.add(lowerLegGroup);
+
+            const lowerLeg = new THREE.Mesh(new THREE.BoxGeometry(6.5, 20, 6.5), materials.pants);
+            lowerLeg.position.y = -10;
+            lowerLeg.castShadow = true;
+            lowerLegGroup.add(lowerLeg);
+
+            const shoe = new THREE.Mesh(new THREE.BoxGeometry(7, 3, 10), materials.shoes);
+            shoe.position.set(0, -10.5, 2);
+            lowerLeg.add(shoe);
+
+            return { group, lowerLeg: lowerLegGroup };
+        }
+
+        const leftLeg = createLeg(true);
+        parts.leftUpLeg = leftLeg.group;
+        parts.leftLowLeg = leftLeg.lowerLeg;
+        bodyGroup.add(leftLeg.group);
+
+        const rightLeg = createLeg(false);
+        parts.rightUpLeg = rightLeg.group;
+        parts.rightLowLeg = rightLeg.lowerLeg;
+        bodyGroup.add(rightLeg.group);
+
+        // --- 4. ANIMATION LOGIC ---
+
+        let isPlaying = false;
+        let startTime = 0;
+        let pausedAt = 0;
+        const clock = new THREE.Clock();
+
+        function lerp(start, end, t) {
+            return start * (1 - t) + end * t;
+        }
+
+        function updateDancer() {
+            if (!isPlaying) return;
+
+            const elapsedTime = clock.getElapsedTime() - startTime;
+            const t = elapsedTime % ANIMATION_PERIOD;
+            const s = t / ANIMATION_PERIOD;
+
+            // Find keyframes
+            let i = 0;
+            for (let k = 1; k < animationKeys.length; k++) {
+                if (animationKeys[k].s > s) {
+                    i = k - 1;
+                    break;
+                }
+            }
+
+            const nextIndex = i + 1 < animationKeys.length ? i + 1 : 0;
+            const key1 = animationKeys[i];
+            const key2 = animationKeys[nextIndex];
+
+            const range = key2.s - key1.s;
+            const tt = range === 0 ? 0 : (s - key1.s) / range;
+
+            const vals = {
+                headupy: lerp(key1.pose.headupy, key2.pose.headupy, tt),
+                heady: lerp(key1.pose.heady, key2.pose.heady, tt),
+                headx: lerp(key1.pose.headx, key2.pose.headx, tt),
+                headhigh: lerp(key1.pose.headhigh, key2.pose.headhigh, tt),
+                bodyy: lerp(key1.pose.bodyy, key2.pose.bodyy, tt),
+                bodyx: lerp(key1.pose.bodyx, key2.pose.bodyx, tt),
+                bodyhigh: lerp(key1.pose.bodyhigh, key2.pose.bodyhigh, tt),
+                leftuplegx: lerp(key1.pose.leftuplegx, key2.pose.leftuplegx, tt),
+                leftlowlegx: lerp(key1.pose.leftlowlegx, key2.pose.leftlowlegx, tt),
+                leftuplegy: lerp(key1.pose.leftuplegy, key2.pose.leftuplegy, tt),
+                leftuplegz: lerp(key1.pose.leftuplegz, key2.pose.leftuplegz, tt),
+                rightuplegy: lerp(key1.pose.rightuplegy, key2.pose.rightuplegy, tt),
+                rightuplegz: lerp(key1.pose.rightuplegz, key2.pose.rightuplegz, tt),
+                rightuplegx: lerp(key1.pose.rightuplegx, key2.pose.rightuplegx, tt),
+                rightlowlegx: lerp(key1.pose.rightlowlegx, key2.pose.rightlowlegx, tt),
+                leftuphandx: lerp(key1.pose.leftuphandx, key2.pose.leftuphandx, tt),
+                leftlowhandx: lerp(key1.pose.leftlowhandx, key2.pose.leftlowhandx, tt),
+                leftuphandy: lerp(key1.pose.leftuphandy, key2.pose.leftuphandy, tt),
+                leftuphandz: lerp(key1.pose.leftuphandz, key2.pose.leftuphandz, tt),
+                rightuphandx: lerp(key1.pose.rightuphandx, key2.pose.rightuphandx, tt),
+                rightuphandy: lerp(key1.pose.rightuphandy, key2.pose.rightuphandy, tt),
+                rightuphandz: lerp(key1.pose.rightuphandz, key2.pose.rightuphandz, tt),
+                rightlowhandx: lerp(key1.pose.rightlowhandx, key2.pose.rightlowhandx, tt)
+            };
+
+            // Apply transforms
+            
+            parts.head.rotation.x = vals.headupy;
+            // FIX: Subtract 3 from heady to correct 180-degree rotation offset
+            parts.head.rotation.y = vals.heady - 3;
+            parts.head.position.x = vals.headx;
+            // FIX: Use base height 84 to prevent clipping (Body top is ~79)
+            parts.head.position.y = 84 + vals.headhigh;
+
+            parts.body.rotation.y = vals.bodyy;
+            parts.body.position.x = vals.bodyx;
+            parts.body.position.y = 64 + vals.bodyhigh;
+
+            parts.leftUpLeg.rotation.set(vals.leftuplegx, vals.leftuplegy, vals.leftuplegz);
+            parts.leftLowLeg.rotation.x = vals.leftlowlegx;
+
+            parts.rightUpLeg.rotation.set(vals.rightuplegx, vals.rightuplegy, vals.rightuplegz);
+            parts.rightLowLeg.rotation.x = vals.rightlowlegx;
+
+            parts.leftUpHand.rotation.set(vals.leftuphandx, vals.leftuphandy, vals.leftuphandz);
+            parts.leftLowHand.rotation.x = vals.leftlowhandx;
+
+            parts.rightUpHand.rotation.set(vals.rightuphandx, vals.rightuphandy, vals.rightuphandz);
+            parts.rightLowHand.rotation.x = vals.rightlowhandx;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            updateDancer();
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- 5. AUDIO & UI ---
+
+        const audio = new Audio(AUDIO_URL);
+        audio.loop = true;
+        
+        const playBtn = document.getElementById('play-btn');
+        const iconPlay = document.getElementById('icon-play');
+        const iconPause = document.getElementById('icon-pause');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const volumeSlider = document.getElementById('volume-slider');
+        const muteBtn = document.getElementById('mute-btn');
+
+        function togglePlay() {
+            if (isPlaying) {
+                // Pause
+                isPlaying = false;
+                pausedAt = (clock.getElapsedTime() - startTime) % ANIMATION_PERIOD;
+                audio.pause();
+                
+                // UI
+                playBtn.classList.remove('bg-red-500', 'hover:bg-red-600', 'shadow-[0_0_30px_rgba(239,68,68,0.4)]');
+                playBtn.classList.add('bg-green-500', 'hover:bg-green-600', 'shadow-[0_0_30px_rgba(34,197,94,0.4)]');
+                iconPlay.classList.remove('hidden');
+                iconPause.classList.add('hidden');
+                statusDot.classList.remove('bg-green-500', 'animate-pulse');
+                statusDot.classList.add('bg-red-500');
+                statusText.innerText = "PAUSED";
+            } else {
+                // Play
+                isPlaying = true;
+                startTime = clock.getElapsedTime() - pausedAt;
+                audio.play().catch(e => console.log("Audio play failed (interaction needed first):", e));
+
+                // UI
+                playBtn.classList.remove('bg-green-500', 'hover:bg-green-600', 'shadow-[0_0_30px_rgba(34,197,94,0.4)]');
+                playBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'shadow-[0_0_30px_rgba(239,68,68,0.4)]');
+                iconPlay.classList.add('hidden');
+                iconPause.classList.remove('hidden');
+                statusDot.classList.remove('bg-red-500');
+                statusDot.classList.add('bg-green-500', 'animate-pulse');
+                statusText.innerText = "PLAYING";
+            }
+        }
+
+        playBtn.addEventListener('click', togglePlay);
+
+        volumeSlider.addEventListener('input', (e) => {
+            audio.volume = e.target.value;
+        });
+
+        muteBtn.addEventListener('click', () => {
+            if(audio.volume > 0) {
+                audio.volume = 0;
+                volumeSlider.value = 0;
+            } else {
+                audio.volume = 0.5;
+                volumeSlider.value = 0.5;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start loop
+        animate();
+
+    </script>
+</body>
+</html>
