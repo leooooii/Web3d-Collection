@@ -8,7 +8,10 @@ Whether you're here for inspiration, curiosity, or evaluation, feel free to dive
 ![Project Preview](./component/profolio.gif)
 
 Explore more on my full portfolio website:  
-👉 **[Click to visit My Portfolio](https://leooooii.github.io/Web3d-Profolio/index.html)**
+<span style="font-size: 28px;">
+  <a href="https://leooooii.github.io/Web3d-Profolio/index.html" target="_blank">👉 Click to visit my portfolio</a>
+</span>
+
 
 ---
 
@@ -42,7 +45,7 @@ A highly interactive 3D office environment built entirely with Three.js.
 
 ### ✨ Features
 - Turn on or off a **desk lamp** to experience dynamic lighting.  
-- Interact with props such as a **record player**, **monitors**, **keyboards**, plants, and more.  
+- Interact with props such as a **record player**, **monitors**, **keyboards**, **plants**, and more.  
 - Switch between multiple **camera perspectives** for exploration.  
 - Move freely around desks, chairs, and office accessories.
 
@@ -94,7 +97,7 @@ A physics-based demo that simulates realistic sphere collisions within a bounded
 ### ✨ Features
 - Real-time ball movement with physically accurate collision responses.  
 - Interactive dynamics allowing users to experiment with motion.  
-- Demonstrates concepts like velocity, friction, and object bounding.  
+- Demonstrates concepts like velocity, and object bounding.  
 - Built to explore physics libraries and custom collision algorithms.
 
 A simple yet engaging sandbox for physics experimentation.
@@ -110,8 +113,7 @@ Control a 3D train as it loops around a circular track.
 
 ### ✨ Features
 - Adjustable **train speed** through UI or keyboard.  
-- Smooth looping animations.  
-- Dynamic lighting to enhance the environment.  
+- Smooth looping animations.   
 - Demonstrates time-based animation and interpolation.
 
 A relaxing and visually appealing scene focusing on animation control.
@@ -125,9 +127,7 @@ A relaxing and visually appealing scene focusing on animation control.
 
 A stylized demo featuring a 3D character performing dance moves.
 
-### ✨ Features
-- Smooth, clean dance animations using GLTF animation blending.  
-- Interactive camera movement for scene exploration.  
+### ✨ Features  
 - Demonstrates character rigging, animation loops, and playback control.  
 - Colorful environment and polished presentation.
 
